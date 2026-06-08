@@ -1,4 +1,9 @@
+#![allow(dead_code)]
 use winit::event_loop::EventLoop;
+
+use crate::application::Application;
+
+mod application;
 
 async fn get_adapter_with_capabilities_or_from_env(
     instance: &wgpu::Instance,
@@ -53,17 +58,17 @@ async fn get_adapter_with_capabilities_or_from_env(
     }
 }
 
-struct SurfaceWrapper<'a> {
-    surface: wgpu::Surface<'a>,
-    config: wgpu::SurfaceConfiguration,
+pub(crate) struct SurfaceWrapper<'a> {
+    pub(crate) surface: wgpu::Surface<'a>,
+    pub(crate) config: wgpu::SurfaceConfiguration,
 }
 
 #[derive(Debug)]
-struct GpuContext {
-    instance: wgpu::Instance,
-    adapter: wgpu::Adapter,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+pub(crate) struct GpuContext {
+    pub(crate) instance: wgpu::Instance,
+    pub(crate) adapter: wgpu::Adapter,
+    pub(crate) device: wgpu::Device,
+    pub(crate) queue: wgpu::Queue,
 }
 
 impl GpuContext {
@@ -117,13 +122,21 @@ fn init_logger() {
         .init();
 }
 
-async fn start(_title: &'static str) {
+async fn start(title: &'static str) {
     init_logger();
 
     let backends = wgpu::Instance::enabled_backend_features();
     log::info!("Enabled Backends {:?}", backends);
     let context = GpuContext::init_async().await;
     log::info!("Create GpuContext");
+
+    let mut application = Application::new(title, context);
+    let event_loop = EventLoop::new().expect("Can construct an event loop");
+
+    log::info!("Entering Event Loop");
+    event_loop
+        .run_app(&mut application)
+        .expect("No Event Loop Errors");
 }
 
 fn main() {
