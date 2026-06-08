@@ -5,13 +5,17 @@ fn init_logger() {
         .filter_module("wgpu_hall", log::LevelFilter::Error)
         .filter_module("naga", log::LevelFilter::Error)
         .parse_default_env()
-        .build();
+        .init();
 }
 
-async fn start(title: &'static str) {
-    todo!()
+async fn start(_title: &'static str) {
+    init_logger();
+
+    let backends = wgpu::Instance::enabled_backend_features();
+    log::info!("Enabled Backends {:?}", backends);
 }
 
 fn main() {
+    log::debug!("test");
     pollster::block_on(start("obj_viewer"))
 }
