@@ -3,11 +3,18 @@ use winit::event_loop::EventLoop;
 
 mod application;
 mod camera;
+mod config;
+mod degradation;
+mod generator;
+mod gltf_model;
+mod landmark;
+mod lighting;
 mod model;
+mod offscreen;
 mod resource;
 mod texture;
 
-async fn get_adapter_with_capabilities_or_from_env(
+pub(crate) async fn get_adapter_with_capabilities_or_from_env(
     instance: &wgpu::Instance,
     required_features: &wgpu::Features,
     required_downlevel_capabilities: &wgpu::DownlevelCapabilities,
@@ -70,16 +77,47 @@ fn init_logger() {
         .init();
 }
 
-fn run() -> anyhow::Result<()> {
-    init_logger();
-
+fn run_windowed_demo() -> anyhow::Result<()> {
     let event_loop = EventLoop::with_user_event().build()?;
     let mut app = Application::new();
     event_loop.run_app(&mut app)?;
-
     Ok(())
 }
 
+fn run_headless(config_path: &std::path::Path) -> anyhow::Result<()> {
+    let cfg = config::load_config(config_path)?;
+    let mut g = generator::Generator::new(cfg)?;
+    g.run()
+}
+
 fn main() {
-    run().unwrap()
+    init_logger();
+
+    let args: Vec<String> = std::env::args().collect();
+
+    let result = if args.contains(&"--headless".to_string()) || args.contains(&"--preview".to_string()) {
+        // Find --config <path>
+        let config_path = args
+            .iter()
+            .position(|a| a == "--config")
+            .and_then(|i| args.get(i + 1))
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("sample_config.toml"));
+
+        if args.contains(&"--preview".to_string()) {
+            // TODO Phase 7: run generator in parallel with a winit preview window.
+            // For now, fall through to headless and note that preview is not yet wired.
+            log::warn!("--preview: preview window not yet implemented, running headless");
+        }
+
+        run_headless(&config_path)
+    } else {
+        // Default: windowed cube demo
+        run_windowed_demo()
+    };
+
+    if let Err(e) = result {
+        log::error!("{e}");
+        std::process::exit(1);
+    }
 }

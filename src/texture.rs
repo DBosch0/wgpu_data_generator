@@ -125,6 +125,18 @@ impl Texture {
         }
     }
 
+    pub fn solid_color(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        rgba: [u8; 4],
+        label: &str,
+    ) -> Self {
+        let img = image::DynamicImage::ImageRgba8(
+            image::RgbaImage::from_pixel(1, 1, image::Rgba(rgba)),
+        );
+        Self::from_image(device, queue, &img, Some(label), false).expect("1×1 solid color texture")
+    }
+
     pub fn create_depth_texture(
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
@@ -167,5 +179,86 @@ impl Texture {
             sampler,
             size,
         }
+    }
+
+    pub fn create_render_target(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+        label: &str,
+    ) -> Self {
+        let size = wgpu::Extent3d {
+            width: width.max(1),
+            height: height.max(1),
+            depth_or_array_layers: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::wgt::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::wgt::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        Self {
+            texture,
+            view,
+            sampler,
+            size,
+        }
+    }
+
+    pub fn create_depth_texture_sized(device: &wgpu::Device, width: u32, height: u32) -> Self {
+        let size = wgpu::Extent3d {
+            width: width.max(1),
+            height: height.max(1),
+            depth_or_array_layers: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("offscreen_depth"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Self::DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::wgt::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::wgt::SamplerDescriptor {
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+        Self {
+            texture,
+            view,
+            sampler,
+            size,
+        }
+    }
+
+    /// Returns (buffer, padded_bytes_per_row). Rows are padded to 256-byte alignment.
+    pub fn create_readback_buffer(device: &wgpu::Device, width: u32, height: u32) -> (wgpu::Buffer, u32) {
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let unpadded = width * 4;
+        let padded = (unpadded + align - 1) / align * align;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("readback_buffer"),
+            size: (padded * height) as u64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        (buffer, padded)
     }
 }

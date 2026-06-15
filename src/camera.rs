@@ -4,6 +4,8 @@ pub struct Camera {
     pub position: Point3<f32>,
     yaw: Rad<f32>,
     pitch: Rad<f32>,
+    roll: Rad<f32>,
+    pub target: Point3<f32>,
 }
 
 impl Camera {
@@ -16,18 +18,50 @@ impl Camera {
             position: position.into(),
             yaw: yaw.into(),
             pitch: pitch.into(),
+            roll: Rad(0.0),
+            target: Point3::new(0.0, 0.0, 0.0),
         }
     }
 
-    pub fn calc_matrix(&self) -> Matrix4<f32> {
-        let (sin_pitch, cos_pitch) = self.pitch.0.sin_cos();
-        let (sin_yaw, cos_yaw) = self.yaw.0.sin_cos();
+    /// Position the camera at `distance` from `target`, looking at it from the
+    /// given spherical angles (all in radians).
+    pub fn set_pose(
+        &mut self,
+        yaw: Rad<f32>,
+        pitch: Rad<f32>,
+        roll: Rad<f32>,
+        distance: f32,
+        target: Point3<f32>,
+    ) {
+        let (sin_yaw, cos_yaw) = yaw.0.sin_cos();
+        let (sin_pitch, cos_pitch) = pitch.0.sin_cos();
+        let offset = Vector3::new(
+            cos_pitch * sin_yaw,
+            sin_pitch,
+            cos_pitch * cos_yaw,
+        ) * distance;
+        self.position = target + offset;
+        self.yaw = yaw;
+        self.pitch = pitch;
+        self.roll = roll;
+        self.target = target;
+    }
 
-        Matrix4::look_to_rh(
-            self.position,
-            Vector3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
-            Vector3::unit_y(),
-        )
+    pub fn calc_matrix(&self) -> Matrix4<f32> {
+        // Orbit camera: always look toward self.target.
+        // Roll tilts the up vector around the look direction.
+        let forward = (cgmath::Vector3::new(
+            self.target.x - self.position.x,
+            self.target.y - self.position.y,
+            self.target.z - self.position.z,
+        ))
+        .normalize();
+        let world_up = Vector3::unit_y();
+        let right = forward.cross(world_up).normalize();
+        let (sin_roll, cos_roll) = self.roll.0.sin_cos();
+        let up = world_up * cos_roll + right * sin_roll;
+
+        Matrix4::look_to_rh(self.position, forward, up)
     }
 }
 
@@ -62,7 +96,7 @@ impl Projection {
 pub struct CameraUniform {
     view_position: [f32; 4],
     view: [[f32; 4]; 4],
-    view_proj: [[f32; 4]; 4],
+    pub view_proj: [[f32; 4]; 4],
     inv_proj: [[f32; 4]; 4],
     inv_view: [[f32; 4]; 4],
 }
