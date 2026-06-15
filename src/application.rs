@@ -2,6 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
+use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, WindowEvent},
@@ -11,7 +12,7 @@ use winit::{
 };
 
 use crate::{
-    get_adapter_with_capabilities_or_from_env,
+    camera, get_adapter_with_capabilities_or_from_env,
     model::{self, Vertex},
     resource, texture,
 };
@@ -24,6 +25,11 @@ pub struct State {
     is_surfaced_configured: bool,
     window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
+    camera: camera::Camera,
+    projection: camera::Projection,
+    camera_uniform: camera::CameraUniform,
+    camera_buffer: wgpu::Buffer,
+    camera_bind_group: wgpu::BindGroup,
     obj_model: model::Model,
     depth_texture: texture::Texture,
 }
@@ -123,13 +129,51 @@ impl State {
                 ],
             });
 
+        let camera = camera::Camera::new((0.0, 5.0, 5.0), cgmath::Deg(-90.0), cgmath::Deg(-45.0));
+        let projection =
+            camera::Projection::new(config.width, config.height, cgmath::Deg(90.0), 0.1, 100.0);
+        let mut camera_uniform = camera::CameraUniform::new();
+        camera_uniform.update_view_proj(&camera, &projection);
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("camera_buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("camera_bind_group_layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("camera_bind_group"),
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+        });
+
         let depth_texture =
             texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("render_pipeline_layout"),
-                bind_group_layouts: &[Some(&texture_bind_group_layout)],
+                bind_group_layouts: &[
+                    Some(&texture_bind_group_layout),
+                    Some(&camera_bind_group_layout),
+                ],
                 immediate_size: 0,
             });
 
@@ -162,6 +206,11 @@ impl State {
             is_surfaced_configured: false,
             window,
             render_pipeline,
+            camera,
+            projection,
+            camera_uniform,
+            camera_buffer,
+            camera_bind_group,
             obj_model,
             depth_texture,
         })
@@ -257,6 +306,7 @@ impl State {
                 render_pass
                     .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.set_bind_group(0, &material.bind_group, &[]);
+                render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
                 render_pass.draw_indexed(0..mesh.num_elements, 0, 0..1);
             }
 
@@ -268,7 +318,15 @@ impl State {
         Ok(())
     }
 
-    fn update(&mut self, _dt: Duration) {}
+    fn update(&mut self, _dt: Duration) {
+        self.camera_uniform
+            .update_view_proj(&self.camera, &self.projection);
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+    }
 
     fn handle_key(
         &mut self,
