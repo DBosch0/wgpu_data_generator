@@ -1,9 +1,11 @@
-#![allow(dead_code)]
-
 use crate::application::Application;
 use winit::event_loop::EventLoop;
 
 mod application;
+mod camera;
+mod model;
+mod resource;
+mod texture;
 
 async fn get_adapter_with_capabilities_or_from_env(
     instance: &wgpu::Instance,
